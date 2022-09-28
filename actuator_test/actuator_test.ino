@@ -12,12 +12,17 @@ void setup() {
 
 void loop() {
     if (Serial.available() > 0) {
-        int pitch = Serial.read();
-        Serial.write(pitch);
-        set_pitch(pitch);
+        int pitch = atoi(Serial.readString());
+        // int pitch = Serial.read();
+        char temp[8];
+        sprinf(temp, "%d\n", pitch);
+        Serial.write(temp);
+        if (pitchControl.attached()) {
+            set_pitch(pitch);
+        } else {
+            Serial.println("Actuator is not attached.");
+        }
     }
-
-    
 }
 
 void set_pitch(int pitch_angle) {
@@ -34,6 +39,5 @@ void set_pitch(int pitch_angle) {
             delay(15);
         }
     }
-    current_angle = pitch_angle;
     delay(15);
 }
