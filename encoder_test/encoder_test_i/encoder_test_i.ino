@@ -20,7 +20,7 @@ void loop() {
    count = 0;
    interrupts();
 
-   Serial.println(copyCount); 
+   Serial.println(copyCount*12); 
 
  }
 

@@ -39,6 +39,6 @@ void encoder() {
     rps = cps / 2048;
     delta_rps = rps - old_rps;
     old_rps = rps;
-    Serial.println(rps);
+    Serial.println(rps*60);
   }
 }

@@ -7,8 +7,8 @@
 
 const int ENGAGED_BRAKE_ANGLE = 90;
 const int DISENGAGED_BRAKE_ANGLE = 110;
-const int ACTUATOR_MAX = 80;
-const int ACTUATOR_MIN = 0;
+const int ACTUATOR_MAX = 100;
+const int ACTUATOR_MIN = 40;
 
 bool brakeIsEngaged = false;
 
@@ -123,6 +123,6 @@ void encoder() {
     rps = cps / 2048;
     delta_rps = rps - old_rps;
     old_rps = rps;
-    Serial.println(rps);
+    Serial.println(rps*60);
   }
 }
