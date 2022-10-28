@@ -5,8 +5,8 @@
 #define ACTUATOR_PIN 12
 #define BRAKE_SERVO_PIN 9
 
-const int ENGAGED_BRAKE_ANGLE = 90;
-const int DISENGAGED_BRAKE_ANGLE = 110;
+const int ENGAGED_BRAKE_ANGLE = 95;
+const int DISENGAGED_BRAKE_ANGLE = 120;
 const int ACTUATOR_MAX = 100;
 const int ACTUATOR_MIN = 40;
 
@@ -34,7 +34,9 @@ float delta_rps;
 void setup() {
     Serial.begin(9600);
     Serial.write("Beginning test! \n");
+    pitchControl.write(80);
     pitchControl.attach(ACTUATOR_PIN);
+    brakeControl.write(DISENGAGED_BRAKE_ANGLE);
     brakeControl.attach(BRAKE_SERVO_PIN);
 }
 
