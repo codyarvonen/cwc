@@ -10,11 +10,11 @@
 #define LOAD_READ_PIN 5
 #define EBRAKE_BTN_PIN 11
 #define WALL_SWITCH_PIN 4
-#define GEN_SWITCH_PIN 5
-#define LOAD_SWITCH_PIN 6
+#define GEN_LOAD_SWITCH_PIN 5
+// #define LOAD_SWITCH_PIN 6
 #define LOAD_NET_SWITCH_1_PIN 7
 #define LOAD_NET_SWITCH_2_PIN 8
-#define LOAD_NET_SWITCH_3_PIN 9
+#define LOAD_NET_SWITCH_4_PIN 9
 
 #define ENGAGED_BRAKE_ANGLE 90
 #define DISENGAGED_BRAKE_ANGLE 110
@@ -54,19 +54,19 @@ void setup() {
     Serial.begin(9600);
 
     pinMode(EBRAKE_BTN_PIN, INPUT_PULLUP);
-    pinMode(GEN_SWITCH_PIN, OUTPUT);
-    pinMode(LOAD_SWITCH_PIN, OUTPUT);
+    pinMode(GEN_LOAD_SWITCH_PIN, OUTPUT);
+    // pinMode(LOAD_SWITCH_PIN, OUTPUT);
     pinMode(WALL_SWITCH_PIN, OUTPUT);
     pinMode(LOAD_NET_SWITCH_1_PIN, OUTPUT);
     pinMode(LOAD_NET_SWITCH_2_PIN, OUTPUT);
-    pinMode(LOAD_NET_SWITCH_3_PIN, OUTPUT);
+    pinMode(LOAD_NET_SWITCH_4_PIN, OUTPUT);
 
-    digital_write(GEN_SWITCH_PIN, LOW);
-    digital_write(LOAD_SWITCH_PIN, LOW);
+    digital_write(GEN_LOAD_SWITCH_PIN, LOW);
+    // digital_write(LOAD_SWITCH_PIN, LOW);
     digital_write(WALL_SWITCH_PIN, HIGH);
     digital_write(LOAD_NET_SWITCH_1_PIN, LOW);
     digital_write(LOAD_NET_SWITCH_2_PIN, LOW);
-    digital_write(LOAD_NET_SWITCH_3_PIN, LOW);
+    digital_write(LOAD_NET_SWITCH_4_PIN, LOW);
 
     pitchControl.write(ACTUATOR_MAX);
     pitchControl.attach(ACTUATOR_PIN);
@@ -92,38 +92,43 @@ void loop() {
     case restart:
         if (test_state == toggle_test) {
             currentState = testing;
+        } else if (!load_connected() ||) {
+            currentState = emergency_shutdown;
         }
         // set pitch to startup angle, trigger switches back
         break;
     case power_curve:
         if (test_state == toggle_test) {
             currentState = testing;
+        } else if (!load_connected()) {
+            currentState = emergency_shutdown;
         }
         /* Figure out how to determine wind speed
         if(avgWindSpeed >= 11 m/s){
             currentState = steady_power;
         }
         */
-        check_E_Stop();
         break;
     case steady_power:
         if (test_state == toggle_test) {
             currentState = testing;
+        } else if (!load_connected()) {
+            currentState = emergency_shutdown;
         }
         /* Figure out how to determine wind speed
         if(avgWindSpeed > 14 m/s){
             currentState = survival;
         }
         */
-        check_E_Stop();
         break;
     case survival:
         if (test_state == toggle_test) {
             currentState = testing;
+        } else if (!load_connected()) {
+            currentState = emergency_shutdown;
         }
         // Set load and pitch to values that are best fit for survival
         // same as E_Stop but leave switches in intial position?
-        check_E_Stop();
         break;
     case emergency_shutdown:
         if (test_state == toggle_test) {
@@ -158,12 +163,13 @@ void loop() {
         case wind_speed_test:
             break;
         case switch_test:
-            digital_write(GEN_SWITCH_PIN, wallPower);
-            digital_write(LOAD_SWITCH_PIN, wallPower);
+            digital_write(GEN_LOAD_SWITCH_PIN, wallPower);
+            // digital_write(LOAD_SWITCH_PIN, wallPower);
             digital_write(WALL_SWITCH_PIN, !wallPower);
             wallPower = !wallPower;
             break;
         case load_switch_test:
+            test_load_switches();
             break;
         case wait:
             break;
@@ -212,6 +218,28 @@ void set_pitch(int pitch_angle) {
     }
 }
 
+void set_load(int binary_val) {
+    if (binary_val >= 8 || binary_val < 0) {
+        Serial.println("Invalid load value");
+    } else {
+        if (binary_val & 0x1) {
+            digital_write(LOAD_NET_SWITCH_1_PIN, HIGH);
+        } else {
+            digital_write(LOAD_NET_SWITCH_1_PIN, LOW);
+        }
+        if (binary_val & 0x2) {
+            digital_write(LOAD_NET_SWITCH_2_PIN, HIGH);
+        } else {
+            digital_write(LOAD_NET_SWITCH_2_PIN, LOW);
+        }
+        if (binary_val & 0x4) {
+            digital_write(LOAD_NET_SWITCH_4_PIN, HIGH);
+        } else {
+            digital_write(LOAD_NET_SWITCH_4_PIN, LOW);
+        }
+    }
+}
+
 void engageBrake() { brakeControl.write(ENGAGED_BRAKE_ANGLE); }
 
 void disengageBrake() { brakeControl.write(DISENGAGED_BRAKE_ANGLE); }
@@ -231,18 +259,15 @@ float encoder() {
         oldtime = newtime;
         rpm = (dx * 1000000 * 60) / (dt * 2048);
     }
-    // Serial.println(rpm);
     return rpm;
 }
 
-void check_E_Stop() {
+bool load_connected() {
     float voltage = analogRead(LOAD_READ_PIN) * 5.0 / 1023.0;
-    Serial.print("  Voltage: ");
-    Serial.println(voltage);
     if (voltage < LOAD_DISCONNECT_THRESHOLD) {
-        Serial.println("NO LOAD DETECTED, BEGIN E-STOP");
-        currentState = emergency_shutdown;
+        return false;
     }
+    return true;
 }
 
 void clear_buf() {
@@ -253,10 +278,30 @@ void clear_buf() {
 }
 
 void test_pitch() {
+    Serial.println("Enter pitch value to test: ");
+    int pitch = get_input_integer();
+    if (pitch < ACTUATOR_MIN) {
+        pitch = ACTUATOR_MIN;
+    }
+    if (pitch > ACTUATOR_MAX) {
+        pitch = ACTUATOR_MAX;
+    }
+    set_pitch(pitch);
+}
+
+void test_load_switches() {
+    Serial.println("Enter load value to test: ");
+
+    int load = get_input_integer();
+
+    set_load(load);
+}
+
+int get_input_integer() {
+    int input = 0;
     while (!Serial.available())
         ;
     if (Serial.available() > 0) {
-        int pitch = 0;
         while (true) {
             incomingByte = Serial.read();
             if (incomingByte == '\n') {
@@ -265,18 +310,12 @@ void test_pitch() {
             if (incomingByte == -1) {
                 continue;
             }
-            pitch *= 10; // shift left 1 decimal place
-            pitch = ((incomingByte - 48) + pitch);
+            input *= 10; // shift left 1 decimal place
+            input = ((incomingByte - 48) + input);
         }
         clear_buf();
-        if (pitch < ACTUATOR_MIN) {
-            pitch = ACTUATOR_MIN
-        }
-        if (pitch > ACTUATOR_MAX) {
-            pitch = ACTUATOR_MAX
-        }
-        set_pitch(pitch);
     }
+    return input;
 }
 
 test_type get_input() {
