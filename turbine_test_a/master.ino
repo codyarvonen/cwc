@@ -12,29 +12,34 @@ TESTS TO RUN
 #include <Servo.h>
 #include <string.h>
 
-#define ENCODER_PIN1 2
-#define ENCODER_PIN2 3
+#define ENCODER_PIN_1 2
+#define ENCODER_PIN_2 3
+#define POWER_SWITCH_PIN 4
+#define LOAD_NET_SWITCH_1_PIN 7
+#define LOAD_NET_SWITCH_2_PIN 8
+#define LOAD_NET_SWITCH_4_PIN 9
+#define ACTUATOR_SWITCH_SIGNAL_PIN 10
+#define EBRAKE_BTN_PIN 11
 #define ACTUATOR_PIN 12
+#define VOLTAGE_PIN 18
+#define ESTOP_LED 19
+#define STEADY_POWER_LED 20
+#define POWER_CURVE_LED 21
+#define SURVIVAL_LED 22
+
 #define ACTUATOR_MAX 100
 #define ACTUATOR_MIN 0
-#define LOAD_DISCONNECT_THRESHOLD 0.05
 #define INITIAL_PITCH 30 // This value is arbitrary, needs to be tested
 #define BRAKE_PITCH 0 // This value is arbitrary, needs to be tested
-#define ACTUATOR_SWITCH_SIGNAL_PIN 9
-#define PRIMARY_SWITCH_SIGNAL_PIN 10 // This value is arbitrary and needs to be set
-#define SECONDARY_SWITCH_SIGNAL_PIN 11 // This value is arbitrary and needs to be set
-#define FIRST_RESISTOR_SWITCH 8
-#define SECOND_RESISTOR_SWITCH 7
-#define THIRD_RESISTOR_SWITCH 6
 
-const int VOLTAGE_PIN = A0;
-const int ESTOP_LED  = A1;
-const int STEADY_POWER_LED = A2;
-const int POWER_CURVE_LED = A3;
-const int SURVIVAL_LED = A4;
+#define LOAD_DISCONNECT_THRESHOLD 0.05
+#define STEADY_POWER_RPM 2500.0
+#define STEADY_POWER_RANGE 100.0
 
-const float STEADY_POWER_RPM = 2500.0;
-const float STEADY_POWER_RANGE = 100.0;
+// These are not ohm values, but rather which resistor configuration #1-8
+const int lookupResistorTable[15]  =  {1, 2, 3, 4, 5, 6, 7, 8, 6,  6,  6,  6,  6,  6,  6}; 
+// Pair of arrays acting as resistor lookup value given wind speed
+const int lookupWindSpeedTable[15] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
 float avgWindSpeed = 0.0;
 float sampledWindSpeeds[20] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -43,11 +48,7 @@ float sampledRPM[20] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 
 Servo pitchControl;
 
-//   Change the two numbers to the pins connected to your encoder.
-//   Best Performance: both pins have interrupt capability
-//   Good Performance: only the first pin has interrupt capability
-//   Low Performance:  neither pin has interrupt capability
-Encoder myEnc(ENCODER_PIN1, ENCODER_PIN2);
+Encoder myEnc(ENCODER_PIN_1, ENCODER_PIN_2);
 
 enum states_t {
     restart,
@@ -69,31 +70,42 @@ typedef enum {
     encoder_test,
     wind_speed_test,
     switch_test,
-    exit_test
+    load_switch_test,
+    toggle_test,
+    wait
 } test_type;
 
 void setup() {
     Serial.begin(9600);
-    Serial.write("Beginning test! \n");
-    pitchControl.attach(ACTUATOR_PIN);
-    pinMode(PRIMARY_SWITCH_SIGNAL_PIN, OUTPUT);
-    pinMode(SECONDARY_SWITCH_SIGNAL_PIN, OUTPUT);
+
+    pinMode(EBRAKE_BTN_PIN, INPUT_PULLUP);
+    pinMode(POWER_SWITCH_PIN, OUTPUT);
+    pinMode(LOAD_NET_SWITCH_1_PIN, OUTPUT);
+    pinMode(LOAD_NET_SWITCH_2_PIN, OUTPUT);
+    pinMode(LOAD_NET_SWITCH_4_PIN, OUTPUT);
     pinMode(ACTUATOR_SWITCH_SIGNAL_PIN, OUTPUT);
-    pinMode(FIRST_RESISTOR_SWITCH, OUTPUT);
-    pinMode(SECOND_RESISTOR_SWITCH, OUTPUT);
-    pinMode(THIRD_RESISTOR_SWITCH, OUTPUT);
     pinMode(VOLTAGE_PIN, INPUT);
     pinMode(ESTOP_LED, OUTPUT);
     pinMode(POWER_CURVE_LED, OUTPUT);
     pinMode(STEADY_POWER_LED, OUTPUT);
     pinMode(SURVIVAL_LED, OUTPUT);
 
+    digital_write(POWER_SWITCH_PIN, LOW);
+    digital_write(LOAD_NET_SWITCH_1_PIN, LOW);
+    digital_write(LOAD_NET_SWITCH_2_PIN, LOW);
+    digital_write(LOAD_NET_SWITCH_4_PIN, LOW);
+
+    pitchControl.write(INITIAL_PITCH);
+    pitchControl.attach(ACTUATOR_PIN);
+    
     currentState = restart;
+    
     set_state_led();
+    
+    Serial.write("Starting up the turbine!\n");
 }
 
-// unsigned int integerValue = 0;
-// char incomingByte;
+
 int pitch;
 int resistorValue = 0;
 bool restartProtocolComplete = false;
@@ -102,17 +114,21 @@ int currentPitch = 0;
 
 void loop() {
 
+    test_type test_state = get_input();
+
     /***********************/
     /** STATE TRANSITIONS **/
     /***********************/
     switch (currentState) {
     case testing:
-        // if (toggle_test()) {
-        //     currentState = restart;
-        // }
+        if (test_state == toggle_test) {
+            currentState = restart;
+        } else {
+          delay(1000);
+        }
         break;
     case restart:
-        if (toggle_test()) {
+        if (test_state == toggle_test) {
             currentState = testing;
             set_state_led();
         }
@@ -120,12 +136,16 @@ void loop() {
             restartProtocolComplete = false;
             currentState = power_curve;
             set_state_led();
+        } else if (!load_connected()) {
+            currentState = emergency_shutdown;
         }
         break;
     case power_curve:
-        if (toggle_test()) {
+        if (test_state == toggle_test) {
             currentState = testing;
             set_state_led();
+        } else if (!load_connected()) {
+            currentState = emergency_shutdown;
         }
         // Figure out how to determine wind speed, lookup table or windspeed sensor
         if(avgWindSpeed >= 11){
@@ -138,8 +158,11 @@ void loop() {
         }
         break;
     case steady_power:
-        if (toggle_test()) {
+        if (test_state == toggle_test) {
             currentState = testing;
+            set_state_led();
+        } else if (!load_connected()) {
+            currentState = emergency_shutdown;
             set_state_led();
         }
         // Figure out how to determine wind speed, lookup table or windspeed sensor
@@ -148,16 +171,13 @@ void loop() {
             set_state_led();
         }
         else if(avgWindSpeed < 11){
-          currentState = steady_power;
-          set_state_led();
+            currentState = power_curve;
+            set_state_led();
         }
-        if(engage_E_Stop()){
-          currentState = emergency_shutdown;
-          set_state_led();
-        }
+        
         break;
     case survival:
-        if (toggle_test()) {
+        if (test_state == toggle_test) {
             currentState = testing;
             set_state_led();
         }
@@ -166,14 +186,15 @@ void loop() {
         if(avgWindSpeed < 14){
           currentState = steady_power;
           set_state_led();
+     
         }
-        if(engage_E_Stop()){
-          currentState = emergency_shutdown;
-          set_state_led();
+        if (!load_connected()) {
+            currentState = emergency_shutdown;
+            set_state_led();
         }
         break;
     case emergency_shutdown:
-        if (toggle_test()) {
+        if (test_state == toggle_test) {
             currentState = testing;
             set_state_led();
         }
@@ -192,7 +213,33 @@ void loop() {
 
     // This mode is designed for testing with manual control
     case testing:
-        if (Serial.available() > 0) {
+        switch (test_state) {
+        case pitch_test:
+            test_pitch();
+            break;
+        case brake_test:
+            if (brakeIsEngaged) {
+                disengageBrake();
+            } else {
+                engageBrake();
+            }
+            break;
+        case encoder_test:
+            Serial.println(encoder());
+            break;
+        case wind_speed_test:
+            break;
+        case switch_test:
+            digital_write(GEN_LOAD_SWITCH_PIN, wallPower);
+            // digital_write(LOAD_SWITCH_PIN, wallPower);
+            digital_write(WALL_SWITCH_PIN, !wallPower);
+            wallPower = !wallPower;
+            break;
+        case load_switch_test:
+            test_load_switches();
+            break;
+        case wait:
+            break;
         }
         break;
 
@@ -248,6 +295,7 @@ void loop() {
     // HANDLE ENCODER AND WIND SPEED
     sample_wind_speed();
     encoder();
+
 }
 
 void set_pitch(int pitch_angle) {
@@ -300,6 +348,28 @@ void set_state_led(){
     }
     
 }
+void set_load(int binary_val) {
+    if (binary_val >= 8 || binary_val < 0) {
+        Serial.println("Invalid load value");
+    } else {
+        if (binary_val & 0x1) {
+            digital_write(LOAD_NET_SWITCH_1_PIN, HIGH);
+        } else {
+            digital_write(LOAD_NET_SWITCH_1_PIN, LOW);
+        }
+        if (binary_val & 0x2) {
+            digital_write(LOAD_NET_SWITCH_2_PIN, HIGH);
+        } else {
+            digital_write(LOAD_NET_SWITCH_2_PIN, LOW);
+        }
+        if (binary_val & 0x4) {
+            digital_write(LOAD_NET_SWITCH_4_PIN, HIGH);
+        } else {
+            digital_write(LOAD_NET_SWITCH_4_PIN, LOW);
+        }
+    }
+}
+
 
 void set_switches(bool initialState){
   /* The initial state has the load switch and generator to nacelle switch closed, and the wall to nacelle switch open.
@@ -332,50 +402,108 @@ float encoder() {
         oldtime = newtime;
         rpm = (dx * 1000000 * 60) / (dt * 2048);
     }
-    //Serial.println(rpm);
+
     update_avg_rpm(rpm);
     return rpm;
 }
 
-bool engage_E_Stop() {
-    int value;
-    float volt;
 
-    value = analogRead(VOLTAGE_PIN);
-
-    volt = value * 5.0 / 1023.0;
-
-    Serial.print("Value: ");
-    Serial.print(value);
-    Serial.print("  Volt: ");
-    Serial.println(volt);
-    if (volt < LOAD_DISCONNECT_THRESHOLD) {
-      Serial.println("NO LOAD DETECTED, BEGIN E-STOP");
-      return true;
+bool load_connected() {
+    float voltage = analogRead(VOLTAGE_PIN) * 5.0 / 1023.0;
+    if (voltage < LOAD_DISCONNECT_THRESHOLD) {
+        return false;
     }
-    else if (false){ //check for ebutton press here
-      Serial.println("ESTOP BUTTON ENGAGED, BEGIN E-STOP");
-      return true;
-    }
-    else {
-      return false;
+    return true;
+}
+
+void clear_buf() {
+    // Eat up any extra bytes that may have gotten included
+    while (Serial.available() > 0) {
+        Serial.read();
     }
 }
 
-bool toggle_test() {
-    if (Serial.available() > 0) {
-        char inputString[6];
-        for (int i = 0; i < 5; i++) {
-            inputString[i] = Serial.read();
-        }
-        inputString[5] = '\0';
-        // Eat up any extra bytes that may have gotten included
-        while (Serial.available() > 0) {
-            Serial.read();
-        }
-        return !strcmp(inputString, "test\n");
+void test_pitch() {
+    Serial.println("Enter pitch value to test: ");
+    int pitch = get_input_integer();
+    if (pitch < ACTUATOR_MIN) {
+        pitch = ACTUATOR_MIN;
     }
-    return false;
+    if (pitch > ACTUATOR_MAX) {
+        pitch = ACTUATOR_MAX;
+    }
+    set_pitch(pitch);
+}
+
+void test_load_switches() {
+    Serial.println("Enter load value to test: ");
+
+    int load = get_input_integer();
+
+    set_load(load);
+}
+
+int get_input_integer() {
+    int input = 0;
+    while (!Serial.available())
+        ;
+    if (Serial.available() > 0) {
+        while (true) {
+            incomingByte = Serial.read();
+            if (incomingByte == '\n') {
+                break;
+            }
+            if (incomingByte == -1) {
+                continue;
+            }
+            input *= 10; // shift left 1 decimal place
+            input = ((incomingByte - 48) + input);
+        }
+        clear_buf();
+    }
+    return input;
+}
+
+test_type get_input() {
+    /*
+    Input types:
+        pitch
+        brake
+        rpm
+        wind
+        switch
+        test
+        null
+    */
+    if (Serial.available() > 0) {
+        char inputString[7];
+        for (int i = 0; i < 6; i++) {
+            inputString[i] = Serial.read();
+            if (inputString[i] == '\n') {
+                inputString[i + 1] = '\0';
+            }
+        }
+        clear_buf();
+        if (!strcmp(inputString, "test\n")) {
+            return toggle_test;
+        }
+        if (!strcmp(inputString, "pitch\n")) {
+            return pitch_test;
+        }
+        if (!strcmp(inputString, "brake\n")) {
+            return brake_test;
+        }
+        if (!strcmp(inputString, "rpm\n")) {
+            return encoder_test;
+        }
+        if (!strcmp(inputString, "wind\n")) {
+            return wind_speed_test;
+        }
+        if (!strcmp(inputString, "switch\n")) {
+            return switch_test;
+        }
+    }
+
 }
 
 void update_avg_rpm(float measuredRPM){
@@ -401,54 +529,6 @@ void sample_wind_speed(){
     update_avg_wind_speed(currentWindSpeed);
 }
 
-void set_load_resistance(int resistance){
-    // Set the switches in the resistor relay to get the desired resistance
-    if (resistance == 1){ //a load resistance of X ohms
-        digitalWrite(FIRST_RESISTOR_SWITCH, LOW);
-        digitalWrite(SECOND_RESISTOR_SWITCH, LOW);
-        digitalWrite(THIRD_RESISTOR_SWITCH, LOW);
-    }
-    else if (resistance == 2){ //a load resistance of X ohms
-        digitalWrite(FIRST_RESISTOR_SWITCH, HIGH);
-        digitalWrite(SECOND_RESISTOR_SWITCH, LOW);
-        digitalWrite(THIRD_RESISTOR_SWITCH, LOW);
-    }
-    else if (resistance == 3){ //a load resistance of X ohms
-        digitalWrite(FIRST_RESISTOR_SWITCH, LOW);
-        digitalWrite(SECOND_RESISTOR_SWITCH, HIGH);
-        digitalWrite(THIRD_RESISTOR_SWITCH, LOW);
-    }
-    else if (resistance == 4){ //a load resistance of X ohms
-        digitalWrite(FIRST_RESISTOR_SWITCH, HIGH);
-        digitalWrite(SECOND_RESISTOR_SWITCH, HIGH);
-        digitalWrite(THIRD_RESISTOR_SWITCH, LOW);
-    }
-    else if (resistance == 5){ //a load resistance of X ohms
-        digitalWrite(FIRST_RESISTOR_SWITCH, LOW);
-        digitalWrite(SECOND_RESISTOR_SWITCH, LOW);
-        digitalWrite(THIRD_RESISTOR_SWITCH, HIGH);
-    }
-    else if (resistance == 6){ //a load resistance of X ohms
-        digitalWrite(FIRST_RESISTOR_SWITCH, HIGH);
-        digitalWrite(SECOND_RESISTOR_SWITCH, LOW);
-        digitalWrite(THIRD_RESISTOR_SWITCH, HIGH);
-    }
-    else if (resistance == 7){ //a load resistance of X ohms
-        digitalWrite(FIRST_RESISTOR_SWITCH, LOW);
-        digitalWrite(SECOND_RESISTOR_SWITCH, HIGH);
-        digitalWrite(THIRD_RESISTOR_SWITCH, HIGH);
-    }
-    else if (resistance == 8){ //a load resistance of X ohms
-        digitalWrite(FIRST_RESISTOR_SWITCH, HIGH);
-        digitalWrite(SECOND_RESISTOR_SWITCH, HIGH);
-        digitalWrite(THIRD_RESISTOR_SWITCH, HIGH);
-    }
-}
-
-// Pair of arrays acting as resistor lookup value given wind speed
-const int lookupWindSpeedTable[15] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
-const int lookupResistorTable[15]  =  {1, 2, 3, 4, 5, 6, 7, 8, 6,  6,  6,  6,  6,  6,  6}; // These are not ohm values, but rather which resistor configuration #1-8
-
 int lookupResistor(float avgWindSpeed){
     int roundedWindSpeed = (int)(avgWindSpeed + 0.5);
     int index = 0;
@@ -459,5 +539,3 @@ int lookupResistor(float avgWindSpeed){
     }
     return lookupResistorTable[index];
 }
-
-test_type get_test_input() {}
