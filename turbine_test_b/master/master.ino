@@ -5,21 +5,21 @@
 
 #define ENCODER_PIN_1 2
 #define ENCODER_PIN_2 3
-#define ACTUATOR_PIN 12
-#define BRAKE_SERVO_PIN 9
-#define LOAD_READ_PIN 5
-#define EBRAKE_BTN_PIN 11
-#define WALL_SWITCH_PIN 4
-#define GEN_LOAD_SWITCH_PIN 5
-// #define LOAD_SWITCH_PIN 6
+#define ACTUATOR_PIN 5
+#define WALL_SWITCH_PIN 10
+#define GEN_LOAD_SWITCH_PIN 11
+
+#define EBRAKE_BTN_PIN 8
+#define BRAKE_SERVO_PIN 6
+#define LOAD_READ_PIN 4
 #define LOAD_NET_SWITCH_1_PIN 7
-#define LOAD_NET_SWITCH_2_PIN 8
+#define LOAD_NET_SWITCH_2_PIN 12
 #define LOAD_NET_SWITCH_4_PIN 9
 
 #define ENGAGED_BRAKE_ANGLE 90
 #define DISENGAGED_BRAKE_ANGLE 110
 #define ACTUATOR_MAX 80
-#define ACTUATOR_MIN 50
+#define ACTUATOR_MIN 40
 #define LOAD_DISCONNECT_THRESHOLD 0.1
 
 bool brakeIsEngaged = false;
@@ -55,23 +55,25 @@ void setup() {
 
     pinMode(EBRAKE_BTN_PIN, INPUT_PULLUP);
     pinMode(GEN_LOAD_SWITCH_PIN, OUTPUT);
-    // pinMode(LOAD_SWITCH_PIN, OUTPUT);
     pinMode(WALL_SWITCH_PIN, OUTPUT);
     pinMode(LOAD_NET_SWITCH_1_PIN, OUTPUT);
     pinMode(LOAD_NET_SWITCH_2_PIN, OUTPUT);
     pinMode(LOAD_NET_SWITCH_4_PIN, OUTPUT);
 
-    digital_write(GEN_LOAD_SWITCH_PIN, LOW);
-    // digital_write(LOAD_SWITCH_PIN, LOW);
-    digital_write(WALL_SWITCH_PIN, HIGH);
-    digital_write(LOAD_NET_SWITCH_1_PIN, LOW);
-    digital_write(LOAD_NET_SWITCH_2_PIN, LOW);
-    digital_write(LOAD_NET_SWITCH_4_PIN, LOW);
+    digitalWrite(GEN_LOAD_SWITCH_PIN, LOW);
+    digitalWrite(WALL_SWITCH_PIN, LOW);
+    digitalWrite(LOAD_NET_SWITCH_1_PIN, LOW);
+    digitalWrite(LOAD_NET_SWITCH_2_PIN, LOW);
+    digitalWrite(LOAD_NET_SWITCH_4_PIN, LOW);
+
+    delay(1000);
 
     pitchControl.write(ACTUATOR_MAX);
     pitchControl.attach(ACTUATOR_PIN);
     brakeControl.write(DISENGAGED_BRAKE_ANGLE);
     brakeControl.attach(BRAKE_SERVO_PIN);
+
+    currentState = restart;
 
     Serial.write("Beginning test! \n");
 }
@@ -92,7 +94,7 @@ void loop() {
     case restart:
         if (test_state == toggle_test) {
             currentState = testing;
-        } else if (!load_connected() ||) {
+        } else if (!load_connected() || digitalRead(EBRAKE_BTN_PIN)) {
             currentState = emergency_shutdown;
         }
         // set pitch to startup angle, trigger switches back
@@ -100,7 +102,7 @@ void loop() {
     case power_curve:
         if (test_state == toggle_test) {
             currentState = testing;
-        } else if (!load_connected()) {
+        } else if (!load_connected() || digitalRead(EBRAKE_BTN_PIN)) {
             currentState = emergency_shutdown;
         }
         /* Figure out how to determine wind speed
@@ -112,7 +114,7 @@ void loop() {
     case steady_power:
         if (test_state == toggle_test) {
             currentState = testing;
-        } else if (!load_connected()) {
+        } else if (!load_connected() || digitalRead(EBRAKE_BTN_PIN)) {
             currentState = emergency_shutdown;
         }
         /* Figure out how to determine wind speed
@@ -124,7 +126,7 @@ void loop() {
     case survival:
         if (test_state == toggle_test) {
             currentState = testing;
-        } else if (!load_connected()) {
+        } else if (!load_connected() || digitalRead(EBRAKE_BTN_PIN)) {
             currentState = emergency_shutdown;
         }
         // Set load and pitch to values that are best fit for survival
@@ -152,8 +154,10 @@ void loop() {
             break;
         case brake_test:
             if (brakeIsEngaged) {
+                Serial.println("Disengaging brake");
                 disengageBrake();
             } else {
+                Serial.println("Engaging brake");
                 engageBrake();
             }
             break;
@@ -161,18 +165,26 @@ void loop() {
             Serial.println(encoder());
             break;
         case wind_speed_test:
+            Serial.println("Wind speed test method not yet implemented");
             break;
         case switch_test:
-            digital_write(GEN_LOAD_SWITCH_PIN, wallPower);
-            // digital_write(LOAD_SWITCH_PIN, wallPower);
-            digital_write(WALL_SWITCH_PIN, !wallPower);
+            Serial.println("Toggle switches");
+//            digitalWrite(GEN_LOAD_SWITCH_PIN, wallPower);
+//            digitalWrite(WALL_SWITCH_PIN, !wallPower);
+
+            digitalWrite(GEN_LOAD_SWITCH_PIN, !digitalRead(GEN_LOAD_SWITCH_PIN));
+            digitalWrite(WALL_SWITCH_PIN, !digitalRead(WALL_SWITCH_PIN));
+            
             wallPower = !wallPower;
             break;
         case load_switch_test:
             test_load_switches();
             break;
         case wait:
+            Serial.println("Waiting for input");
             break;
+        default:
+            Serial.println("Something unexpected has occured!");
         }
         break;
 
@@ -223,19 +235,19 @@ void set_load(int binary_val) {
         Serial.println("Invalid load value");
     } else {
         if (binary_val & 0x1) {
-            digital_write(LOAD_NET_SWITCH_1_PIN, HIGH);
+            digitalWrite(LOAD_NET_SWITCH_1_PIN, HIGH);
         } else {
-            digital_write(LOAD_NET_SWITCH_1_PIN, LOW);
+            digitalWrite(LOAD_NET_SWITCH_1_PIN, LOW);
         }
         if (binary_val & 0x2) {
-            digital_write(LOAD_NET_SWITCH_2_PIN, HIGH);
+            digitalWrite(LOAD_NET_SWITCH_2_PIN, HIGH);
         } else {
-            digital_write(LOAD_NET_SWITCH_2_PIN, LOW);
+            digitalWrite(LOAD_NET_SWITCH_2_PIN, LOW);
         }
         if (binary_val & 0x4) {
-            digital_write(LOAD_NET_SWITCH_4_PIN, HIGH);
+            digitalWrite(LOAD_NET_SWITCH_4_PIN, HIGH);
         } else {
-            digital_write(LOAD_NET_SWITCH_4_PIN, LOW);
+            digitalWrite(LOAD_NET_SWITCH_4_PIN, LOW);
         }
     }
 }
@@ -247,7 +259,7 @@ void disengageBrake() { brakeControl.write(DISENGAGED_BRAKE_ANGLE); }
 float encoder() {
     static long oldPosition = 0;
     static long oldtime = 0;
-    static float rpm = 0;
+    float rpm = 0;
 
     long newPosition = myEnc.read();
 
@@ -280,12 +292,13 @@ void clear_buf() {
 void test_pitch() {
     Serial.println("Enter pitch value to test: ");
     int pitch = get_input_integer();
-    if (pitch < ACTUATOR_MIN) {
-        pitch = ACTUATOR_MIN;
-    }
-    if (pitch > ACTUATOR_MAX) {
-        pitch = ACTUATOR_MAX;
-    }
+    Serial.println(pitch);
+//    if (pitch < ACTUATOR_MIN) {
+//        pitch = ACTUATOR_MIN;
+//    }
+//    if (pitch > ACTUATOR_MAX) {
+//        pitch = ACTUATOR_MAX;
+//    }
     set_pitch(pitch);
 }
 
@@ -302,6 +315,7 @@ int get_input_integer() {
     while (!Serial.available())
         ;
     if (Serial.available() > 0) {
+        char incomingByte;
         while (true) {
             incomingByte = Serial.read();
             if (incomingByte == '\n') {
@@ -329,15 +343,20 @@ test_type get_input() {
         test
         null
     */
+    Serial.println("Checking for user input");
     if (Serial.available() > 0) {
+        Serial.println("User input has been detected!");
         char inputString[7];
         for (int i = 0; i < 6; i++) {
             inputString[i] = Serial.read();
             if (inputString[i] == '\n') {
+              
                 inputString[i + 1] = '\0';
+                break;
             }
         }
         clear_buf();
+        Serial.println(inputString);
         if (!strcmp(inputString, "test\n")) {
             return toggle_test;
         }
@@ -353,7 +372,7 @@ test_type get_input() {
         if (!strcmp(inputString, "wind\n")) {
             return wind_speed_test;
         }
-        if (!strcmp(inputString, "switch\n")) {
+        if (!strcmp(inputString, "swich\n")) {
             return switch_test;
         }
     }
