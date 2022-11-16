@@ -4,6 +4,9 @@
 
 #define ACTUATOR_PIN 12
 #define BRAKE_SERVO_PIN 9
+#define PRIMARY_SWITCH_SIGNAL_PIN 10
+#define SECONDARY_SWITCH_SIGNAL_PIN 11
+#define ACTUATOR_SWITCH_PIN 8
 
 const int ENGAGED_BRAKE_ANGLE = 95;
 const int DISENGAGED_BRAKE_ANGLE = 120;
@@ -38,11 +41,16 @@ void setup() {
     pitchControl.attach(ACTUATOR_PIN);
     brakeControl.write(DISENGAGED_BRAKE_ANGLE);
     brakeControl.attach(BRAKE_SERVO_PIN);
+    pinMode(PRIMARY_SWITCH_SIGNAL_PIN, OUTPUT);
+    pinMode(SECONDARY_SWITCH_SIGNAL_PIN, OUTPUT);
+    pinMode(ACTUATOR_SWITCH_PIN, OUTPUT)
+    digitalWrite(PRIMARY_SWITCH_SIGNAL_PIN, HIGH);
 }
 
 unsigned int integerValue = 0;
 char incomingByte;
 int pitch;
+int circuitState = 1;
 
 void loop() {
 
@@ -74,7 +82,18 @@ void loop() {
           disengageBrake();
           brakeIsEngaged = false;
         }
-      } else {
+      } 
+      else if (pitch == 1000){ //arbitrary value, used for switching circuit mode
+        if(circuiteState = 1){
+          set_switches(false);
+          circuitState = 2;
+        } else {
+          set_switches(true);
+          circuitState = 1;
+        }
+      } 
+      
+      else {
         Serial.println("Invalid Input");
       }
     } else {
@@ -88,6 +107,7 @@ void loop() {
 }
 
 void set_pitch(int pitch_angle) {
+    digitalWrite(ACTUATOR_SWITCH_PIN, HIGH);
     int current_angle = pitchControl.read();
     if (pitch_angle < current_angle) {
         for (int pos = current_angle; pos >= pitch_angle; pos--) {
@@ -101,6 +121,7 @@ void set_pitch(int pitch_angle) {
             delay(15);
         }
     }
+    digitalWrite(ACTUATOR_SWITCH_PIN, LOW);
     delay(15);
 }
 
@@ -126,5 +147,21 @@ void encoder() {
     delta_rps = rps - old_rps;
     old_rps = rps;
     Serial.println(rps*60);
+  }
+}
+
+void set_switches(bool initialState){
+  /* The initial state has the load switch and generator to nacelle switch closed, and the wall to nacelle switch and brake switch open.
+  The generator to nacelle switch and the load switch share a digital signal. The wall to nacelle switch and the brake switch
+  also share a digital signal. */
+
+  //First set all switches to open, to avoid ever having all switches closed
+  digitalWrite(PRIMARY_SWITCH_SIGNAL_PIN, LOW);
+  digitalWrite(SECONDARY_SWITCH_SIGNAL_PIN, LOW);
+  if(initialState){
+    digitalWrite(PRIMARY_SWITCH_SIGNAL_PIN, HIGH);
+  }
+  else{
+    digitalWrite(SECONDARY_SWITCH_SIGNAL_PIN, HIGH);
   }
 }
