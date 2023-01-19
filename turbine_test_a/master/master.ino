@@ -14,7 +14,8 @@ relay, make sure that switches lead to different load resistances.
 
 #define ENCODER_PIN_1 2
 #define ENCODER_PIN_2 3
-#define POWER_SWITCH_PIN 4
+#define NACELLE_SWITCH_PIN 4
+#define LOAD_SWITCH_PIN 5
 #define LOAD_NET_SWITCH_1_PIN 7
 #define LOAD_NET_SWITCH_2_PIN 8
 #define LOAD_NET_SWITCH_4_PIN 9
@@ -78,7 +79,8 @@ void setup() {
     Serial.begin(9600);
 
     pinMode(EBRAKE_BTN_PIN, INPUT_PULLUP);
-    pinMode(POWER_SWITCH_PIN, OUTPUT);
+    pinMode(LOAD_SWITCH_PIN, OUTPUT);
+    pinMode(NACELLE_SWITCH_PIN, OUTPUT);
     pinMode(LOAD_NET_SWITCH_1_PIN, OUTPUT);
     pinMode(LOAD_NET_SWITCH_2_PIN, OUTPUT);
     pinMode(LOAD_NET_SWITCH_4_PIN, OUTPUT);
@@ -89,7 +91,8 @@ void setup() {
     pinMode(STEADY_POWER_LED, OUTPUT);
     pinMode(SURVIVAL_LED, OUTPUT);
 
-    digitalWrite(POWER_SWITCH_PIN, LOW);
+    digitalWrite(LOAD_SWITCH_PIN, LOW);
+    digitalWrite(NACELLE_SWITCH_PIN, HIGH);
     digitalWrite(LOAD_NET_SWITCH_1_PIN, LOW);
     digitalWrite(LOAD_NET_SWITCH_2_PIN, LOW);
     digitalWrite(LOAD_NET_SWITCH_4_PIN, LOW);
@@ -99,7 +102,7 @@ void setup() {
 
     currentState = restart;
 
-    set_state_led();
+//    set_state_led();
 
     Serial.write("Starting up the turbine!\n");
 }
@@ -130,70 +133,70 @@ void loop() {
     case restart:
         if (test_state == toggle_test) {
             currentState = testing;
-            set_state_led();
+//            set_state_led();
         } else if (is_load_connected()) {
             currentState = power_curve;
-            set_state_led();
+//            set_state_led();
         }
         break;
     case power_curve:
         if (test_state == toggle_test) {
             currentState = testing;
-            set_state_led();
+//            set_state_led();
         } else if (is_E_stop()) {
             currentState = emergency_shutdown;
         }
         // Figure out how to determine wind speed, lookup table or windspeed sensor
         if (avgWindSpeed >= 11) {
             currentState = steady_power;
-            set_state_led();
+//            set_state_led();
         }
         break;
     case steady_power:
         if (test_state == toggle_test) {
             currentState = testing;
-            set_state_led();
+//            set_state_led();
         } else if (is_E_stop()) {
             currentState = emergency_shutdown;
-            set_state_led();
+//            set_state_led();
         }
         // Figure out how to determine wind speed, lookup table or windspeed sensor
         if (avgWindSpeed > 14) {
             currentState = survival;
-            set_state_led();
+//            set_state_led();
         } else if (avgWindSpeed < 11) {
             currentState = power_curve;
-            set_state_led();
+//            set_state_led();
         }
 
         break;
     case survival:
         if (test_state == toggle_test) {
             currentState = testing;
-            set_state_led();
+//            set_state_led();
         }
         // Set load and pitch to values that are best fit for survival
         // same as E_Stop but leave switches in initial position?
         if (avgWindSpeed < 14) {
             currentState = steady_power;
-            set_state_led();
+//            set_state_led();
         }
         if (is_E_stop()) {
             currentState = emergency_shutdown;
-            set_state_led();
+//            set_state_led();
         }
         break;
     case emergency_shutdown:
         if (test_state == toggle_test) {
             currentState = testing;
-            set_state_led();
+//            set_state_led();
         }
         if (!is_E_stop()) {
             toggle_power_switch();
             set_pitch(INITIAL_PITCH);
             toggle_power_switch();
             currentState = restart;
-            set_state_led();
+//            set_state_led();
         }
         break;
     }
@@ -206,17 +209,19 @@ void loop() {
 
     // This mode is designed for testing with manual control
     case testing:
+        Serial.println("Testing");
         switch (test_state) {
         case pitch_test:
             test_pitch();
             break;
         case brake_test:
-//            if (brakeIsEngaged) {
-//                disengageBrake();
-//            } else {
-//                engageBrake();
-//            }
-//            break;
+            Serial.println("Testing EBRAKE");
+            while (is_E_stop());
+            externalPower = true;
+            digitalWrite(LOAD_SWITCH_PIN, externalPower);
+            digitalWrite(NACELLE_SWITCH_PIN, !externalPower);
+            delay(1000);
+            set_pitch(60);
         case encoder_test:
             Serial.println(encoder());
             break;
@@ -250,17 +255,17 @@ void loop() {
     // Adjust the pitch to maintain constant power output from 11-14 m/s
     // TODO: test pitch angles to have a fixed rpm for varying wind speeds and set resistor value
     case steady_power:
-        int curr_rpm = 0;
-        currentPitch = 0;
-//        set_load_resistance(6); // move this so it is set right before moving to steady_power?
-        curr_rpm = encoder();   // Get a rolling average instead of single data point
-        if (curr_rpm < STEADY_POWER_RPM - STEADY_POWER_RANGE) {
-            currentPitch = pitchControl.read() + 5; // Find a good step size
-            set_pitch(currentPitch);                // set this pitch based on current rpm
-        } else if (curr_rpm > STEADY_POWER_RPM + STEADY_POWER_RANGE) {
-            currentPitch = pitchControl.read() - 5; // Find a good step size
-            set_pitch(currentPitch);                // set this pitch based on current rpm
-        }
+//        int curr_rpm = 0;
+//        currentPitch = 0;
+////        set_load_resistance(6); // move this so it is set right before moving to steady_power?
+//        curr_rpm = encoder();   // Get a rolling average instead of single data point
+//        if (curr_rpm < STEADY_POWER_RPM - STEADY_POWER_RANGE) {
+//            currentPitch = pitchControl.read() + 5; // Find a good step size
+//            set_pitch(currentPitch);                // set this pitch based on current rpm
+//        } else if (curr_rpm > STEADY_POWER_RPM + STEADY_POWER_RANGE) {
+//            currentPitch = pitchControl.read() - 5; // Find a good step size
+//            set_pitch(currentPitch);                // set this pitch based on current rpm
+//        }
 
         break;
 
@@ -276,7 +281,7 @@ void loop() {
     }
 
     // HANDLE ENCODER AND WIND SPEED
-    sample_wind_speed();
+//    sample_wind_speed();
     encoder();
 }
 
@@ -299,40 +304,41 @@ void set_pitch(int pitch_angle) {
 }
 
 void toggle_power_switch() {
-    digitalWrite(POWER_SWITCH_PIN, externalPower);
+    digitalWrite(LOAD_SWITCH_PIN, externalPower);
+    digitalWrite(NACELLE_SWITCH_PIN, !externalPower);
     externalPower = !externalPower;
 }
 
-void set_state_led() {
-    digitalWrite(ESTOP_LED, LOW);
-    digitalWrite(POWER_CURVE_LED, LOW);
-    digitalWrite(STEADY_POWER_LED, LOW);
-    digitalWrite(SURVIVAL_LED, LOW);
-    switch (currentState) {
-    case testing:
-        digitalWrite(ESTOP_LED, HIGH);
-        digitalWrite(POWER_CURVE_LED, HIGH);
-        digitalWrite(STEADY_POWER_LED, HIGH);
-        digitalWrite(SURVIVAL_LED, HIGH);
-        break;
-    case restart:
-        digitalWrite(ESTOP_LED, HIGH);
-        digitalWrite(POWER_CURVE_LED, HIGH);
-        break;
-    case power_curve:
-        digitalWrite(POWER_CURVE_LED, HIGH);
-        break;
-    case steady_power:
-        digitalWrite(STEADY_POWER_LED, HIGH);
-        break;
-    case survival:
-        digitalWrite(SURVIVAL_LED, HIGH);
-        break;
-    case emergency_shutdown:
-        digitalWrite(ESTOP_LED, HIGH);
-        break;
-    }
-}
+//void set_state_led() {
+//    digitalWrite(ESTOP_LED, LOW);
+//    digitalWrite(POWER_CURVE_LED, LOW);
+//    digitalWrite(STEADY_POWER_LED, LOW);
+//    digitalWrite(SURVIVAL_LED, LOW);
+//    switch (currentState) {
+//    case testing:
+//        digitalWrite(ESTOP_LED, HIGH);
+//        digitalWrite(POWER_CURVE_LED, HIGH);
+//        digitalWrite(STEADY_POWER_LED, HIGH);
+//        digitalWrite(SURVIVAL_LED, HIGH);
+//        break;
+//    case restart:
+//        digitalWrite(ESTOP_LED, HIGH);
+//        digitalWrite(POWER_CURVE_LED, HIGH);
+//        break;
+//    case power_curve:
+//        digitalWrite(POWER_CURVE_LED, HIGH);
+//        break;
+//    case steady_power:
+//        digitalWrite(STEADY_POWER_LED, HIGH);
+//        break;
+//    case survival:
+//        digitalWrite(SURVIVAL_LED, HIGH);
+//        break;
+//    case emergency_shutdown:
+//        digitalWrite(ESTOP_LED, HIGH);
+//        break;
+//    }
+//}
 void set_load(int binary_val) {
     if (binary_val >= 8 || binary_val < 0) {
         Serial.println("Invalid load value");
@@ -386,7 +392,7 @@ float encoder() {
         rpm = (dx * 1000000 * 60) / (dt * 2048);
     }
 
-    update_avg_rpm(rpm);
+//    update_avg_rpm(rpm);
     return rpm;
 }
 
@@ -399,12 +405,12 @@ bool is_load_connected() {
 }
 
 bool is_E_stop() {
-    // return digital_read(EBRAKE_BTN_PIN) :
+     return !digitalRead(EBRAKE_BTN_PIN);
 
-    if (digitalRead(EBRAKE_BTN_PIN)) {
-        return true;
-    }
-    return !is_load_connected();
+//    if (digitalRead(EBRAKE_BTN_PIN)) {
+//        return true;
+//    }
+//    return !is_load_connected();
 }
 
 void clear_buf() {
@@ -456,81 +462,89 @@ int get_input_integer() {
 }
 
 test_type get_input() {
-    /*
-    Input types:
-        pitch
-        brake
-        rpm
-        wind
-        switch
-        test
-        null
-    */
-    if (Serial.available() > 0) {
-        char inputString[7];
-        for (int i = 0; i < 6; i++) {
-            inputString[i] = Serial.read();
-            if (inputString[i] == '\n') {
-                inputString[i + 1] = '\0';
-            }
-        }
-        clear_buf();
-        if (!strcmp(inputString, "test\n")) {
-            return toggle_test;
-        }
-        if (!strcmp(inputString, "pitch\n")) {
-            return pitch_test;
-        }
-        if (!strcmp(inputString, "brake\n")) {
-            return brake_test;
-        }
-        if (!strcmp(inputString, "rpm\n")) {
-            return encoder_test;
-        }
-        if (!strcmp(inputString, "wind\n")) {
-            return wind_speed_test;
-        }
-        if (!strcmp(inputString, "switch\n")) {
-            return switch_test;
-        }
-    }
-    return wait;
-}
+     /*
+     Input types:
+         pitch
+         brake
+         rpm
+         wind
+         switch
+         test
+         null
+     */
+//     Serial.println("Checking for user input");
+     if (Serial.available() > 0) {
+         Serial.println("User input has been detected!");
+         char inputString[8];
+         int incomingByte;
+         for (int i = 0; i < 8; i++) {
+             incomingByte = Serial.read();
+             if (incomingByte == '\n') {
+                 inputString[i] = '\0';
+                 break;
+             } else {
+                 inputString[i] = incomingByte;
+             }
+         }
+         clear_buf();
+         Serial.println(inputString);
+         if (!strcmp(inputString, "test")) {
+             return toggle_test;
+         }
+         if (!strcmp(inputString, "pitch")) {
+             return pitch_test;
+         }
+         if (!strcmp(inputString, "brake")) {
+             return brake_test;
+         }
+         if (!strcmp(inputString, "rpm")) {
+             return encoder_test;
+         }
+         if (!strcmp(inputString, "wind")) {
+             return wind_speed_test;
+         }
+         if (!strcmp(inputString, "switch")) {
+             return switch_test;
+         }
+     }
+     return wait;
+ }
 
-void update_avg_rpm(float measuredRPM) {
-    avgRPM = ((avgRPM * sizeof(sampledRPM)) - sampledRPM[0] + measuredRPM) / sizeof(sampledRPM);
-    for (int i = 0; i < sizeof(sampledWindSpeeds) - 1; i++) {
-        sampledRPM[i] = sampledRPM[i + 1];
-    }
-    sampledRPM[sizeof(sampledRPM) - 1] = measuredRPM;
-}
+ 
+//void update_avg_rpm(float measuredRPM) {
+//    avgRPM = ((avgRPM * sizeof(sampledRPM)) - sampledRPM[0] + measuredRPM) / sizeof(sampledRPM);
+//    for (int i = 0; i < sizeof(sampledWindSpeeds) - 1; i++) {
+//        sampledRPM[i] = sampledRPM[i + 1];
+//    }
+//    sampledRPM[sizeof(sampledRPM) - 1] = measuredRPM;
+//}
 
 // Recalculate the avgWindSpeed, update the sampleWindSpeed array pushing out the oldest data point
 // and adding the newest data point
-void update_avg_wind_speed(float measuredSpeed) {
-    avgWindSpeed =
-        ((avgWindSpeed * sizeof(sampledWindSpeeds)) - sampledWindSpeeds[0] + measuredSpeed) /
-        sizeof(sampledWindSpeeds);
-    for (int i = 0; i < (sizeof(sampledWindSpeeds) - 1); i++) {
-        sampledWindSpeeds[i] = sampledWindSpeeds[i + 1];
-    }
-    sampledWindSpeeds[sizeof(sampledWindSpeeds) - 1] = measuredSpeed;
-}
+//void update_avg_wind_speed(float measuredSpeed) {
+//    avgWindSpeed =
+//        ((avgWindSpeed * sizeof(sampledWindSpeeds)) - sampledWindSpeeds[0] + measuredSpeed) /
+//        sizeof(sampledWindSpeeds);
+//    for (int i = 0; i < (sizeof(sampledWindSpeeds) - 1); i++) {
+//        sampledWindSpeeds[i] = sampledWindSpeeds[i + 1];
+//    }
+//    sampledWindSpeeds[sizeof(sampledWindSpeeds) - 1] = measuredSpeed;
+//}
 
-void sample_wind_speed() {
-    // Sample the pitot tube and calculate the wind speed, or use a lookup table using rpm and pitch
-    // angle
-    float currentWindSpeed = 5.0;
-    update_avg_wind_speed(currentWindSpeed);
-}
+//void sample_wind_speed() {
+//    // Sample the pitot tube and calculate the wind speed, or use a lookup table using rpm and pitch
+//    // angle
+//    float currentWindSpeed = 5.0;
+//    update_avg_wind_speed(currentWindSpeed);
+//}
 
-int lookupResistor(float avgWindSpeed) {
-    int roundedWindSpeed = (int)(avgWindSpeed + 0.5);
-    int index = 0;
-    for (int i = 0; i < sizeof(lookupWindSpeedTable); i++) {
-        if (lookupWindSpeedTable[i] == roundedWindSpeed) {
-            index = i;
-        }
-    }
-    return lookupResistorTable[index];
-}
+//int lookupResistor(float avgWindSpeed) {
+//    int roundedWindSpeed = (int)(avgWindSpeed + 0.5);
+//    int index = 0;
+//    for (int i = 0; i < sizeof(lookupWindSpeedTable); i++) {
+//        if (lookupWindSpeedTable[i] == roundedWindSpeed) {
+//            index = i;
+//        }
+//    }
+//    return lookupResistorTable[index];
+//}
