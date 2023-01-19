@@ -1,6 +1,5 @@
 // https://github.com/arduino-libraries/Servo
 
-<<<<<<< Updated upstream:turbine_test_a/master.ino
 /************************************************************************************************************ 
 TESTS TO RUN 
 1 - Run tests with sampledRPM and sampledWindSpeeds to make sure the avgRPM and avgWindSpeed update correctly 
@@ -8,13 +7,6 @@ TESTS TO RUN
 3 - Test ability to sense when load is reconnected, it will help to know how low of an RPM we can still sense
     a voltage across the load, and if we should change the resistor load to help with this.
 4 - Test resistor relay, make sure that switches lead to different load resistances.
-=======
-/************************************************************************************************************
-TESTS TO RUN
-HARDWARE INSTALL NEEDED TO RUN TESTS
-1 - Verify ESTOP button is correctly installed
-2 - Install a voltage divider in load box and voltage sensor to sense load connect
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
 *************************************************************************************************************/
 #include <Encoder.h> //Uses Encoder library by Paul Stoffregen v 1.4.2
 #include <Servo.h>
@@ -30,10 +22,10 @@ HARDWARE INSTALL NEEDED TO RUN TESTS
 #define EBRAKE_BTN_PIN 11
 #define ACTUATOR_PIN 12
 #define VOLTAGE_PIN 18
-#define ESTOP_LED 19
-#define STEADY_POWER_LED 20
-#define POWER_CURVE_LED 21
-#define SURVIVAL_LED 22
+#define CURRENT_PIN 19
+
+#define SERIAL_DATA_PIN 20
+#define SERIAL_CLK_PIN 21
 
 #define ACTUATOR_MAX 100
 #define ACTUATOR_MIN 0
@@ -54,6 +46,12 @@ const int sampleSize = 20;
 float sampledWindSpeeds[sampleSize] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 float avgRPM = 0.0;
 float sampledRPM[sampleSize] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+float sampledVoltage[sampleSize] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+float sampledCurrent[sampleSize] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+float sampledPower[sampleSize] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+float avgVoltage = 0.0;
+float avgCurrent = 0.0;
+float avgPower = 0.0; 
 
 Servo pitchControl;
 
@@ -111,18 +109,14 @@ void setup() {
     pitchControl.attach(ACTUATOR_PIN);
     
     currentState = restart;
-<<<<<<< Updated upstream:turbine_test_a/master.ino
-    
-    set_state_led();
-    
-    Serial.write("Starting up the turbine!\n");
-=======
 
-    //
+    // Setup LCD Screen
+    //lcd.begin();
+    //lcd.backlight();
+    //lcd.print("Starting up the turbine");
 
     Serial.println("Starting up the turbine!\n");
     output_state_transition();
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
 }
 
 
@@ -130,6 +124,15 @@ int pitch;
 int resistorValue = 0;
 bool restartProtocolComplete = false;
 int currentPitch = 0;
+
+bool found_ideal_resistor = false;
+int tested_loads = 0;
+int current_load = 0;
+float oldRPM = 0;
+float oldPower = 0.0;
+int resistor_change_direction = 1;
+const float RPM_VARIANCE = 1.1;
+const float POWER_VARIANCE = 1.1;
 
 
 void loop() {
@@ -149,40 +152,20 @@ void loop() {
     case restart:
         if (test_state == toggle_test) {
             currentState = testing;
-<<<<<<< Updated upstream:turbine_test_a/master.ino
-            set_state_led();
-        }
-        else if (restartProtocolComplete) {
-            restartProtocolComplete = false;
-            currentState = power_curve;
-            set_state_led();
-        } else if (!load_connected()) {
-            currentState = emergency_shutdown;
-=======
             
         } else if (is_load_connected()) {
             currentState = power_curve;
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
         }
         break;
     case power_curve:
         if (test_state == toggle_test) {
             currentState = testing;
-<<<<<<< Updated upstream:turbine_test_a/master.ino
-            set_state_led();
-        } else if (!load_connected()) {
-            currentState = emergency_shutdown;
-        }
-        // Figure out how to determine wind speed, lookup table or windspeed sensor
-        if(avgWindSpeed >= 11){
-=======
             
         } else if (is_E_stop()) {
             currentState = emergency_shutdown;
         }
         // Figure out how to determine wind speed, lookup table or windspeed sensor
         if (avgRPM >= 1100) {
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
             currentState = steady_power;
             
         }
@@ -194,29 +177,16 @@ void loop() {
     case steady_power:
         if (test_state == toggle_test) {
             currentState = testing;
-<<<<<<< Updated upstream:turbine_test_a/master.ino
-            set_state_led();
-        } else if (!load_connected()) {
-=======
             
         } else if (is_E_stop()) {
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
             currentState = emergency_shutdown;
             
         }
         // Figure out how to determine wind speed, lookup table or windspeed sensor
-<<<<<<< Updated upstream:turbine_test_a/master.ino
-        if(avgWindSpeed > 14){
-            currentState = survival;
-            set_state_led();
-        }
-        else if(avgWindSpeed < 11){
-=======
         if (avgRPM > 2000) {
             currentState = survival;
             
         } else if (avgRPM < 1100) {
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
             currentState = power_curve;
             
         }
@@ -229,16 +199,9 @@ void loop() {
         }
         // Set load and pitch to values that are best fit for survival
         // same as E_Stop but leave switches in initial position?
-<<<<<<< Updated upstream:turbine_test_a/master.ino
-        if(avgWindSpeed < 14){
-          currentState = steady_power;
-          set_state_led();
-     
-=======
         if (avgRPM < 2200) {
             currentState = steady_power;
             
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
         }
         if (!load_connected()) {
             currentState = emergency_shutdown;
@@ -252,13 +215,8 @@ void loop() {
         }
         if(!engage_E_Stop()){
             currentState = restart;
-<<<<<<< Updated upstream:turbine_test_a/master.ino
-            set_state_led();
-        } 
-=======
             
         }
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
         break;
     }
 
@@ -315,12 +273,6 @@ void loop() {
 
     // Adjust the load to reach maximum Cp at each wind speed 5-11 m/s
     case power_curve:
-<<<<<<< Updated upstream:turbine_test_a/master.ino
-        resistorValue = lookupResistor(avgWindSpeed);
-        set_load_resistance(resistorValue); // set this load based on current power Cp? Current wind speed? current rpm?
-        // TODO: Create function that uses lookup table(s) to determine and set resistor value
-      break;
-=======
         // Adjust resistor value until power output does not increase
 
         // Set new Resistor Value to test if ideal value not yet found
@@ -331,9 +283,8 @@ void loop() {
 
             // Check if new resistor improved power output
             // TODO: may need to account for small variability in power, grab n samples before comparing?
-            power = get_power_output();
-            if (oldPower < power){
-                oldPower = power;
+            if (avgPower > oldPower * POWER_VARIANCE){
+                oldPower = avgPower;
             }
             else if (tested_loads >= 1){ 
                 // If first change decreased power output, try moving in the other direction, otherwise we found our peak.
@@ -343,26 +294,17 @@ void loop() {
                 resistor_change_direction *= -1;
             }
             tested_loads++;
-        } else if (avgRPM > oldRPM * 1.1){ //change 1.1 with constant var. Checks for change in RPM indicating new wind speed 
+        } else if (avgRPM > oldRPM * RPM_VARIANCE){ //change 1.1 with constant var. Checks for change in RPM indicating new wind speed 
             found_ideal_resistor = false;
         }
-        
 
         break;
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
 
     // Adjust the pitch to maintain constant power output from 11-14 m/s
     // TODO: test pitch angles to have a fixed rpm for varying wind speeds and set resistor value
     case steady_power:
         int curr_rpm = 0;
         currentPitch = 0;
-<<<<<<< Updated upstream:turbine_test_a/master.ino
-        set_load_resistance(6); // move this so it is set right before moving to steady_power? 
-        curr_rpm = encoder(); // Get a rolling average instead of single data point
-        if (curr_rpm < STEADY_POWER_RPM - STEADY_POWER_RANGE){
-          currentPitch = pitchControl.read() + 5; // Find a good step size
-          set_pitch(currentPitch); // set this pitch based on current rpm
-=======
     //set_load_resistance(6); // move this so it is set right before moving to steady_power?
         curr_rpm = encoder();   // Get a rolling average instead of single data point
         if (curr_rpm < STEADY_POWER_RPM - STEADY_POWER_RANGE) {
@@ -371,7 +313,6 @@ void loop() {
         } else if (curr_rpm > STEADY_POWER_RPM + STEADY_POWER_RANGE) {
             currentPitch = pitchControl.read() - 5; // Find a good step size
             set_pitch(currentPitch);                // set this pitch based on current rpm
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
         }
         else if (curr_rpm > STEADY_POWER_RPM + STEADY_POWER_RANGE){
           currentPitch = pitchControl.read() - 5; // Find a good step size
@@ -391,18 +332,14 @@ void loop() {
     }
 
     // HANDLE ENCODER AND WIND SPEED
-<<<<<<< Updated upstream:turbine_test_a/master.ino
-    sample_wind_speed();
-    encoder();
-
-=======
     //sample_wind_speed();
     float rpm = encoder();
+    update_averages();
     //Serial.println(rpm);    
     if (oldState != currentState){
       output_state_transition();
     }
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
+    //write_to_screen();
 }
 
 void set_pitch(int pitch_angle) {
@@ -423,46 +360,11 @@ void set_pitch(int pitch_angle) {
     digitalWrite(ACTUATOR_SWITCH_SIGNAL_PIN, LOW);
 }
 
-<<<<<<< Updated upstream:turbine_test_a/master.ino
-void set_state_led(){
-    digitalWrite(ESTOP_LED, LOW);
-    digitalWrite(POWER_CURVE_LED, LOW);
-    digitalWrite(STEADY_POWER_LED, LOW);
-    digitalWrite(SURVIVAL_LED, LOW);
-    switch (currentState)
-    {
-        case testing:
-            digitalWrite(ESTOP_LED, HIGH);
-            digitalWrite(POWER_CURVE_LED, HIGH);
-            digitalWrite(STEADY_POWER_LED, HIGH);
-            digitalWrite(SURVIVAL_LED, HIGH);
-            break;
-        case restart:
-            digitalWrite(ESTOP_LED, HIGH);
-            digitalWrite(POWER_CURVE_LED, HIGH);
-            break;
-        case power_curve:
-            digitalWrite(POWER_CURVE_LED, HIGH);
-            break;
-        case steady_power:
-            digitalWrite(STEADY_POWER_LED, HIGH);
-            break;
-        case survival:
-            digitalWrite(SURVIVAL_LED, HIGH);
-            break;
-        case emergency_shutdown:
-            digitalWrite(ESTOP_LED, HIGH);
-            break;
-    }
-    
-}
-=======
 void toggle_power_switch() {
     digitalWrite(POWER_SWITCH_PIN, externalPower);
     externalPower = !externalPower;
 }
    
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
 void set_load(int binary_val) {
     if (binary_val >= 8 || binary_val < 0) {
         Serial.println("Invalid load value");
@@ -485,26 +387,6 @@ void set_load(int binary_val) {
     }
 }
 
-<<<<<<< Updated upstream:turbine_test_a/master.ino
-
-void set_switches(bool initialState){
-  /* The initial state has the load switch and generator to nacelle switch closed, and the wall to nacelle switch open.
-  The generator to nacelle switch and the load switch share a digital signal. The wall to nacelle switch and the brake switch
-  also share a digital signal. */
-
-  //First set all switches to open, to avoid ever having all switches closed
-  digitalWrite(PRIMARY_SWITCH_SIGNAL_PIN, LOW);
-  digitalWrite(SECONDARY_SWITCH_SIGNAL_PIN, LOW);
-  if(initialState){
-    digitalWrite(PRIMARY_SWITCH_SIGNAL_PIN, HIGH);
-  }
-  else{
-    digitalWrite(SECONDARY_SWITCH_SIGNAL_PIN, HIGH);
-  }
-}
-
-=======
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
 float encoder() {
     static long oldPosition = 0;
     static long oldtime = 0;
@@ -627,23 +509,6 @@ test_type get_input() {
 
 }
 
-<<<<<<< Updated upstream:turbine_test_a/master.ino
-void update_avg_rpm(float measuredRPM){
-    avgRPM = ((avgRPM*sizeof(sampledRPM)) - sampledRPM[0] + measuredRPM)/sizeof(sampledRPM);
-    for(int i = 0; i < sizeof(sampledWindSpeeds) - 1; i++){
-        sampledRPM[i] = sampledRPM[i+1];
-    }
-    sampledRPM[sizeof(sampledRPM)-1] = measuredRPM;
-}
-
-// Recalculate the avgWindSpeed, update the sampleWindSpeed array pushing out the oldest data point and adding the newest data point
-void update_avg_wind_speed(float measuredSpeed){
-    avgWindSpeed = ((avgWindSpeed*sizeof(sampledWindSpeeds)) - sampledWindSpeeds[0] + measuredSpeed)/sizeof(sampledWindSpeeds);
-    for (int i = 0; i < (sizeof(sampledWindSpeeds) - 1); i++) {
-        sampledWindSpeeds[i] = sampledWindSpeeds[i+1];
-    }
-    sampledWindSpeeds[sizeof(sampledWindSpeeds)-1] = measuredSpeed;
-=======
 void update_avg_rpm(float measuredRPM) {
     avgRPM = ((avgRPM * sampleSize) - sampledRPM[0] + measuredRPM) / sampleSize;
     for (int i = 0; i < sampleSize - 1; i++) {
@@ -662,7 +527,6 @@ void update_avg_wind_speed(float measuredSpeed) {
     }
     
     sampledWindSpeeds[sampleSize - 1] = measuredSpeed;
->>>>>>> Stashed changes:turbine_test_a/master/master.ino
 }
 
 void sample_wind_speed(){
@@ -674,7 +538,7 @@ void sample_wind_speed(){
 int lookupResistor(float avgWindSpeed){
     int roundedWindSpeed = (int)(avgWindSpeed + 0.5);
     int index = 0;
-    for (int i = 0; i < sizeof(lookupWindSpeedTable); i++){
+    for (int i = 0; i < (sizeof(lookupWindSpeedTable)/sizeof(lookupWindSpeedTable[0])); i++){
         if(lookupWindSpeedTable[i] == roundedWindSpeed){
             index = i;
         }
@@ -682,42 +546,62 @@ int lookupResistor(float avgWindSpeed){
     return lookupResistorTable[index];
 }
 
-float get_power_output(){
-    //TODO: Average out the power result, if we are always monitoring then have average like wind and rpm
-    // otherwise, we could just use a for loop in this function to sample to a large quantity
-    
-    float voltage = analogRead(VOLTAGE_PIN) * 5 / 1023; 
+//TODO: Change this to return the string form of the state, then use for printing out curr and prev state
+void output_state_transition(){
+    if (currentState == power_curve){
+        Serial.println("Entering Power Curve");    
+    }
+    else if (currentState == restart){
+        Serial.println("Entering the Restart State");
+    }
+    else if (currentState == steady_power){
+        Serial.println("Entering the Steady Power State");
+    }
+    else if (currentState == survival){
+        Serial.println("Entering the Survival State");
+    }
+    else if (currentState == emergency_shutdown){
+        Serial.println("Entering Emergency Shutdown");
+    }
+    else if (currentState == testing){
+        Serial.println("Entering the Testing State");
+    }
+    else{
+        Serial.println("Unrecognized State");
+    }
+    Serial.print("Current Avg RPM: ");
+    Serial.println(avgRPM);
+}
+
+// Writes current status of turbine to external LCD screen
+void write_to_screen(){
+
+    //lcd.print("curr State:  prev State:  V: avgV, I: avgI, P: avgP, RPM: avgRPM, R: currLoad")
+}
+
+void update_averages(){
+     float voltage = analogRead(VOLTAGE_PIN) * 5 / 1023; 
 
     // Current sensor has a sensitivity of 185 mV/A, and an offset of 2.5 V (0 A = 2.5 V)
     float current = ((analogRead(CURRENT_PIN) * 5 / 1023) - 2.5) / 0.185; 
 
     float power = voltage * current; // Watt
-    
-    return power;
-}
 
-void output_state_transition(){
-  if (currentState == power_curve){
-    Serial.println("Entering Power Curve");    
-  }
-  else if (currentState == restart){
-    Serial.println("Entering the Restart State");
-  }
-  else if (currentState == steady_power){
-    Serial.println("Entering the Steady Power State");
-  }
-  else if (currentState == survival){
-    Serial.println("Entering the Survival State");
-  }
-  else if (currentState == emergency_shutdown){
-    Serial.println("Entering Emergency Shutdown");
-  }
-  else if (currentState == testing){
-    Serial.println("Entering the Testing State");
-  }
-  else{
-    Serial.println("Unrecognized State");
-  }
-  Serial.print("Current Avg RPM: ");
-  Serial.println(avgRPM);
+    avgVoltage = ((avgVoltage * sampleSize) - sampledVoltage[0] + voltage) / sampleSize;
+    for (int i = 0; i< sampleSize - 1; i++) {
+        sampledVoltage[i] = sampledVoltage[i + 1];
+    }
+    sampledVoltage[sampleSize - 1] = voltage;
+
+    avgCurrent = ((avgCurrent * sampleSize) - sampledCurrent[0] + current) / sampleSize;
+    for (int i = 0; i < sampleSize - 1; i++) {
+        sampledCurrent[i] = sampledCurrent[i + 1];
+    }
+    sampledCurrent[sampleSize - 1] = current;
+
+    avgPower = ((avgPower * sampleSize) - sampledPower[0] + power) / sampleSize;
+    for (int i = 0; i < sampleSize - 1; i++) {
+        sampledPower[i] = sampledPower[i + 1];
+    }
+    sampledPower[sampleSize - 1] = power;
 }
