@@ -28,7 +28,7 @@ TESTS TO RUN
 #define ACTUATOR_MAX 130
 #define ACTUATOR_MIN 60
 #define INITIAL_PITCH 63
-#define BRAKE_PITCH 115    // This value is arbitrary, needs to be tested
+#define BRAKE_PITCH 80    // This value is arbitrary, needs to be tested
 
 #define BASE_RESISTOR 1.0
 
@@ -51,7 +51,7 @@ float avgRPM = 0.0;
 float prevRPM = 0.0;
 int num_wind_tested = 0;
 float pwr_at_11 = 0.0;
-float voltage_factor 4.969 // UPDATE THIS VALUE TO MATCH INITIAL STATE
+float voltage_factor = 4.969; // UPDATE THIS VALUE TO MATCH INITIAL STATE
 float sampledRPM[sampleSize] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 float sampledVoltage[sampleSize] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 float sampledPower[sampleSize] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -99,9 +99,11 @@ typedef enum {
 //   unsigned long interrupt_time = millis();
 //   if (interrupt_time - last_interrupt_time > 1000) {
 //     Serial.println("Entering EBRAKE Interrupt Service Routine");
-//     set_pitch(ACTUATOR_MIN);
+//     Serial.println(digitalRead(EBRAKE_BTN_PIN));
+//     set_pitch(BRAKE_PITCH);
 //     currentState = restart;
-//     while (is_E_stop());
+//     // while (is_E_stop());
+//     Serial.println("Leaving EBRAKE Interrupt Service Routine");
 //   }
 //   last_interrupt_time = interrupt_time;
 // }
@@ -463,12 +465,12 @@ float encoder() {
 }
 
 bool is_load_connected() {
-    float voltage = (analogRead(VOLTAGE_PIN) / 1024.0) * 5.0 * VOLTAGE_FACTOR;
+    float voltage = (analogRead(VOLTAGE_PIN) / 1024.0) * 5.0 * voltage_factor;
     return voltage != 0.0;
 }
 
 bool is_E_stop() {
-     return !digitalRead(EBRAKE_BTN_PIN);
+     return digitalRead(EBRAKE_BTN_PIN);
 }
 
 void clear_buf() {
@@ -651,7 +653,7 @@ void set_voltage_factor() {
 }
  
 void update_averages() {
-    float voltage = (analogRead(VOLTAGE_PIN) / 1024.0) * 5.0 * VOLTAGE_FACTOR; 
+    float voltage = (analogRead(VOLTAGE_PIN) / 1024.0) * 5.0 * voltage_factor; 
  
     float resistance = resistorLookupTable[currentResistor] + BASE_RESISTOR;
 
