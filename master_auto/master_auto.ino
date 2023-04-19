@@ -1,4 +1,4 @@
-// https://github.com/arduino-libraries/Servo
+\// https://github.com/arduino-libraries/Servo
 
 /************************************************************************************************************
 ADDITIONS
@@ -52,6 +52,11 @@ ADDITIONS
 #define PWR_CURVE_CONST_THRESHOLD 150.0 
 #define PWR_CURVE_PERCENT_THRESHOLD 1.1
 
+#define SURVIVAL_PITCH_ANGLE_THRESHOLD 75
+
+#define SURVIVAL_PITCH 63 // THIS VALUE NEEDS TO BE CALIBRATED
+#define SURVIVAL_LOAD 8 // THIS VALUE NEEDS TO BE CALIBRATED
+
 LiquidCrystal_I2C lcd(0x3F, 20, 4);  
 
 const int sampleSize = 20;
@@ -81,6 +86,8 @@ float TARGET_MAX_RPM;
 bool externalPower = true;
 
 bool is_brake_engaged = false;
+
+bool entering_e_stop = true;
 
 Servo pitchControl;
 Servo brakeControl;
@@ -199,6 +206,7 @@ void loop() {
             currentState = testing;
         } else if (is_E_stop() || !is_load_connected()) {
             Serial.println("Entering ESTOP State!");
+            entering_e_stop = true;
             currentState = emergency_shutdown;
         // } else if (avgRPM >= POWER_CURVE_RPM && avgVoltage >= POWER_CURVE_VOLTAGE) {
         } else if (avgRPM >= POWER_CURVE_RPM) {
@@ -214,6 +222,7 @@ void loop() {
             currentState = testing;
         } else if (is_E_stop() || !is_load_connected()) {
             Serial.println("Entering ESTOP State!");
+            entering_e_stop = true;
             currentState = emergency_shutdown;
         }
 
@@ -232,6 +241,22 @@ void loop() {
             currentState = testing;
         } else if (is_E_stop() || !is_load_connected()) {
             Serial.println("Entering ESTOP State!");
+            entering_e_stop = true;
+            currentState = emergency_shutdown;
+        } else if (current_angle < SURVIVAL_PITCH_ANGLE_THRESHOLD){
+            set_pitch(SURVIVAL_PITCH);
+            delay(1000);
+            set_load(SURVIVAL_LOAD);
+            currentState = survival;
+        }
+        break;
+    case survival:
+        if (test_state == toggle_test) {
+            Serial.println("Testing!");
+            currentState = testing;
+        } else if (is_E_stop() || !is_load_connected()) {
+            Serial.println("Entering ESTOP State!");
+            entering_e_stop = true;
             currentState = emergency_shutdown;
         }
         break;
@@ -298,6 +323,9 @@ void loop() {
         case load_disconnect_test:
             Serial.println("Testing Load Disconnect");
             while (is_load_connected());
+            digitalWrite(LOAD_SWITCH_PIN, HIGH);
+            digitalWrite(NACELLE_SWITCH_PIN, LOW);
+            externalPower = true;
             delay(1000);
             engage_ebrake();
             break;
@@ -345,8 +373,19 @@ void loop() {
     case steady_power:
         optimize_pitch();
         break;
+    
+    case survival:
+        break;
 
     case emergency_shutdown:
+        if (entering_e_stop){
+            digitalWrite(LOAD_SWITCH_PIN, HIGH);
+            digitalWrite(NACELLE_SWITCH_PIN, LOW);
+            externalPower = true;
+            delay(1000);
+            engage_ebrake();
+            entering_e_stop = false;
+        }
         break;
     }
 
